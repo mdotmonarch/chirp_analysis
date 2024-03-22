@@ -148,7 +148,7 @@ function refined_composite_multiscale_entropy(signal, m, r, e, scales = [i for i
 end
 
 function compute_complexity(curve, scales)
-	curve = curve[1:scales]
+	curve = [curve[i] for i in scales]
 	
 	#filter out NaN values
 	curve = curve[.!isnan.(curve)]

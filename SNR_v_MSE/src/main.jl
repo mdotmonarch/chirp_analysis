@@ -15,6 +15,7 @@ resampling_rate = 250
 for dataset in datasets
 	println("Processing dataset: ", dataset)
 
+	#=
 	if !isdir("./SNR_v_MSE/processed_data/"*dataset*"/")
 		mkpath("./SNR_v_MSE/processed_data/"*dataset*"/")
 	end
@@ -44,5 +45,84 @@ for dataset in datasets
 				g["mse"] = mse
 			end
 		end
+	end
+	=#
+
+	scales_list_ascendant = [
+		[i for i in 1:5],
+		[i for i in 1:10],
+		[i for i in 1:15],
+		[i for i in 1:20],
+		[i for i in 1:25],
+		[i for i in 1:30],
+		[i for i in 1:35],
+		[i for i in 1:40]
+	]
+
+	scales_list_descendant = [
+		[i for i in 35:40],
+		[i for i in 30:40],
+		[i for i in 25:40],
+		[i for i in 20:40],
+		[i for i in 15:40],
+		[i for i in 10:40],
+		[i for i in 5:40],
+		[i for i in 1:40]
+	]
+
+	scales_list_middle = [
+		[i for i in 18:22],
+		[i for i in 16:24],
+		[i for i in 14:26],
+		[i for i in 12:28],
+		[i for i in 9:31],
+		[i for i in 6:34],
+		[i for i in 3:37],
+		[i for i in 1:40]
+	]
+
+	ascendant_plots = []
+	descendant_plots = []
+	middle_plots = []
+
+	h5open("./SNR_v_MSE/processed_data/"*dataset*"/"*dataset*"_processed.h5", "r") do processed_file
+
+		f = read(processed_file)
+
+		for scales in scales_list_ascendant
+			snr_list = Float64[]
+			mse_list = Float64[]
+			for n in 0:251
+				electrode = "electrode_"*string(n)
+				snr_list = [snr_list; f[electrode]["snr"]]
+				mse_list = [mse_list; compute_complexity(f[electrode]["mse"], scales)]
+			end
+			ascendant_plots = [ascendant_plots; scatter(snr_list, mse_list, title = dataset*": "*string(scales[1])*" to "*string(scales[end]), xlabel = "SNR", ylabel = "Complexity", size = (800, 800))]
+		end
+
+		for scales in scales_list_descendant
+			snr_list = Float64[]
+			mse_list = Float64[]
+			for n in 0:251
+				electrode = "electrode_"*string(n)
+				snr_list = [snr_list; f[electrode]["snr"]]
+				mse_list = [mse_list; compute_complexity(f[electrode]["mse"], scales)]
+			end
+			descendant_plots = [descendant_plots; scatter(snr_list, mse_list, title = dataset*": "*string(scales[1])*" to "*string(scales[end]), xlabel = "SNR", ylabel = "Complexity", size = (800, 800))]
+		end
+
+		for scales in scales_list_middle
+			snr_list = Float64[]
+			mse_list = Float64[]
+			for n in 0:251
+				electrode = "electrode_"*string(n)
+				snr_list = [snr_list; f[electrode]["snr"]]
+				mse_list = [mse_list; compute_complexity(f[electrode]["mse"], scales)]
+			end
+			middle_plots = [middle_plots; scatter(snr_list, mse_list, title = dataset*": "*string(scales[1])*" to "*string(scales[end]), xlabel = "SNR", ylabel = "Complexity", size = (800, 800))]
+		end
+
+		plot([ascendant_plots; descendant_plots; middle_plots]..., layout = (3, 8), size = (4000, 1600))
+		savefig("./SNR_v_MSE/plots/"*dataset*"_snr_v_mse.png")
 	end
 end
