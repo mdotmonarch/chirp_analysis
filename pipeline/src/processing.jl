@@ -25,7 +25,7 @@ nyquist_frequency = 0.5 * sampling_rate
 
 function select_with_signal_to_noise_ratio(dataset, snr_threshold = 10)
 	# open processed file
-	h5open("./analysis/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
+	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
 		# check if clean_electrodes group exists
 		if "clean_electrodes" in keys(read(processed_file))
 			println("Skipping signal to noise ratio selection.")
@@ -66,7 +66,7 @@ end
 
 function normalize_signals_and_average(dataset)
 	# open processed file
-	h5open("./analysis/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
+	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
 		# check if average_signal group exists
 		if "average_signal" in keys(read(processed_file))
 			println("Skipping signal averaging.")
@@ -109,7 +109,7 @@ end
 
 function filter_signal(dataset, filter)
 	# open processed file
-	h5open("./analysis/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
+	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
 		# check if average_signal group exists
 		if "filtered_signal" in keys(read(processed_file))
 			println("Skipping signal filtering.")
@@ -148,7 +148,7 @@ end
 
 function resample_signal(dataset, resampling_rate)
 	# open processed file
-	h5open("./analysis/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
+	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
 		# check if average_signal group exists
 		if "resampled_signal" in keys(read(processed_file))
 			println("Skipping signal resampling.")
@@ -178,7 +178,7 @@ end
 
 function compute_complexity_curve(dataset, type, m, r, scales)
 	# open processed file
-	h5open("./analysis/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
+	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
 		# check if it has clean electrodes
 		if !("clean_electrodes" in keys(read(processed_file)))
 			return
