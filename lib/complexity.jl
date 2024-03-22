@@ -54,6 +54,7 @@ function multiscale_entropy(signal, m, r, e, scales = [i for i in 1:trunc(Int, l
 	en_list = Float64[]
 
 	for scale in scales
+		println("Scale: ", scale)
 
 		# coarse-graining
 		ratio = trunc(Int, N / scale)
@@ -79,6 +80,8 @@ function composite_multiscale_entropy(signal, m, r, e, scales = [i for i in 1:tr
 	en_list = Float64[]
 
 	for scale in scales
+		println("Scale: ", scale)
+
 		# multiple coarse-graining
 		cumulative_en = 0
 		tau = length(signal)%scale
@@ -104,12 +107,13 @@ function composite_multiscale_entropy(signal, m, r, e, scales = [i for i in 1:tr
 	return en_list
 end
 
-function refined_composite_multiscale_entropy(signal, m, r, scales = [i for i in 1:trunc(Int, length(signal)/(m+10))])
+function refined_composite_multiscale_entropy(signal, m, r, e, scales = [i for i in 1:trunc(Int, length(signal)/(m+10))])
 	N = length(signal)
 
 	en_list = Float64[]
 
 	for scale in scales
+		println("Scale: ", scale)
 		
 		# cumulative matches
 		A = 0
