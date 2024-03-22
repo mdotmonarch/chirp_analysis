@@ -35,8 +35,8 @@ r = 0.2
 for dataset in datasets
 	println("Processing dataset: ", dataset)
 	# if directory does not exist, create it
-	if !isdir("./analysis/processed_data/"*dataset*"/")
-		mkpath("./analysis/processed_data/"*dataset*"/")
+	if !isdir("./pipeline/processed_data/"*dataset*"/")
+		mkpath("./pipeline/processed_data/"*dataset*"/")
 	end
 
 	# processing pipeline
