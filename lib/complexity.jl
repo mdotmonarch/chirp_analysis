@@ -147,13 +147,11 @@ function refined_composite_multiscale_entropy(signal, m, r, e, scales = [i for i
 	return en_list
 end
 
-function compute_complexity(curve, scales)
-	curve = [curve[i] for i in scales]
-	
+function compute_complexity(curve)
 	#filter out NaN values
 	curve = curve[.!isnan.(curve)]
 	#filter out Inf values
 	curve = curve[.!isinf.(curve)]
 
-	return trapz(range(1,length(curve),length=length(curve)), curve)/length(curve)
+	return trapz([i for i in 1:length(curve)], curve)/length(curve)
 end
