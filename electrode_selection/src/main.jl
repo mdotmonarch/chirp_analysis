@@ -8,7 +8,7 @@ using Plots
 
 include("../../lib/complexity.jl")
 
-datasets = ["MR-0293", "MR-0311"]
+datasets = ["MR-0311", "MR-0294", "MR-0313", "MR-0293", "MR-0593_nd4", "MR-0599_nd4", "MR-0586_nd4", "MR-0588_nd4"]
 sampling_rate = 20000
 resampling_rate = 250
 
@@ -126,7 +126,10 @@ for dataset in datasets
 		if i == 1 || i == size(Dd, 1)
 			continue
 		end
-		if Dd[i, 2] < Dd[i-1, 2] && Dd[i, 2] < Dd[i+1, 2]
+		if b > 0 && Dd[i, 2] < Dd[i-1, 2] && Dd[i, 2] < Dd[i+1, 2]
+			println("SNR threshold: ", x[i])
+			elbow_index = i
+		elseif b < 0 && Dd[i, 2] > Dd[i-1, 2] && Dd[i, 2] > Dd[i+1, 2]
 			println("SNR threshold: ", x[i])
 			elbow_index = i
 		end
