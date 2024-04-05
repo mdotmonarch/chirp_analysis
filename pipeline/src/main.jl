@@ -40,13 +40,13 @@ for dataset in datasets
 	end
 
 	# processing pipeline
-	select_with_signal_to_noise_ratio(dataset, snr_threshold)
+	select_with_signal_to_noise_ratio(dataset)
 	normalize_signals_and_average(dataset)
 	filter_signal(dataset, filter)
 	resample_signal(dataset, resampling_rate)
 
-	compute_complexity_curve(dataset, "MSE", 2, r, [i for i in 1:40])
-	compute_complexity_curve(dataset, "RCMSE", 2, r, [i for i in 1:40])
-	compute_complexity_curve(dataset, "FMSE", 2, r, [i for i in 1:40])
-	compute_complexity_curve(dataset, "FRCMSE", 2, r, [i for i in 1:40])
+	compute_complexity_curve(dataset, "MSE", 2, r, [i for i in 1:45])
+	compute_complexity_curve(dataset, "RCMSE", 2, r, [i for i in 1:45])
+	compute_complexity_curve(dataset, "FMSE", 2, r, [i for i in 1:45])
+	compute_complexity_curve(dataset, "FRCMSE", 2, r, [i for i in 1:45])
 end

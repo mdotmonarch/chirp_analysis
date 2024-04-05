@@ -65,10 +65,10 @@ for group in groups
 			frcmse_scales = read(processed_file, "FRCMSE/meta/scales")
 
 			#compute complexity value
-			mse_values[group] = [mse_values[group]; compute_complexity(mse_curve, mse_scales)]
-			rcmse_values[group] = [rcmse_values[group]; compute_complexity(rcmse_curve, rcmse_scales)]
-			fmse_values[group] = [fmse_values[group]; compute_complexity(fmse_curve, fmse_scales)]
-			frcmse_values[group] = [frcmse_values[group]; compute_complexity(frcmse_curve, frcmse_scales)]
+			mse_values[group] = [mse_values[group]; compute_complexity(mse_curve[20:45])]
+			rcmse_values[group] = [rcmse_values[group]; compute_complexity(rcmse_curve[20:45])]
+			fmse_values[group] = [fmse_values[group]; compute_complexity(fmse_curve[20:45])]
+			frcmse_values[group] = [frcmse_values[group]; compute_complexity(frcmse_curve[20:45])]
 
 			plot!(mse_scales, mse_curve, label="MSE")
 			plot!(rcmse_scales, rcmse_curve, label="RCMSE")

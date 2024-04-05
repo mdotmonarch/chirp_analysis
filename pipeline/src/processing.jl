@@ -21,9 +21,10 @@ end
 
 # parameters
 sampling_rate = 20000
+resampling_rate = 250
 nyquist_frequency = 0.5 * sampling_rate
 
-function select_with_signal_to_noise_ratio(dataset, snr_threshold = 10)
+function select_with_signal_to_noise_ratio(dataset)
 	# open processed file
 	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
 		# check if clean_electrodes group exists
@@ -32,8 +33,115 @@ function select_with_signal_to_noise_ratio(dataset, snr_threshold = 10)
 			return
 		end
 
-		println("Selecting electrodes with signal to noise ratio > "*string(snr_threshold)*"... ")
 		clean_electrodes = String[]
+
+		println("Calculating SNR value... ")
+
+		snr_l = Float64[]
+		cmp_l = Float64[]
+
+		h5open("./data/"*dataset*"_electrodes_raw.hdf5", "r") do file
+			stream = read(file)
+			for n in 0:251
+				println("Processing electrode: ", n)
+				electrode = "electrode_"*string(n)
+				signal = stream[electrode]["datos"]
+				
+				#resample signal
+				step = trunc(Int, sampling_rate / resampling_rate)
+				signal = signal[1:step:end]
+
+				# calculate SNR
+				noise_c = mean(signal[resampling_rate*36:resampling_rate*38].^2)
+				signal_c = mean(signal.^2)
+				snr = (signal_c/noise_c)
+
+				# calculate fRCMSE
+				fRCMSE = refined_composite_multiscale_entropy(signal, 2, 0.2*std(signal), "fuzzy", [i for i in 20:45])
+				cmp = compute_complexity(fRCMSE)
+
+				snr_l = [snr_l; snr]
+				cmp_l = [cmp_l; cmp]
+			end
+		end
+
+		reg_data = [snr_l cmp_l]
+		reg_data = reg_data[sortperm(reg_data[:,1]), :] # sorts data by SNR
+
+		s_mem = Float64[]
+		for i in axes(reg_data, 1)
+			if i == 1
+				s_mem = [s_mem; 0]
+			else
+				s_mem = [s_mem; s_mem[i-1] + (0.5)*(reg_data[i, 2]+reg_data[i-1, 2])*(reg_data[i, 1]-reg_data[i-1, 1])]
+			end
+		end
+
+		# regression w/ function a + b*exp(c*x)
+
+		sum_x_2 = sum((reg_data[:, 1].-reg_data[1, 1]).^2)
+		sum_x_s = sum((reg_data[:, 1].-reg_data[1, 1]).*s_mem[1:end])
+		sum_s_2 = sum(s_mem[1:end].^2)
+		sum_y_x = sum((reg_data[:, 2].-reg_data[1, 2]).*(reg_data[:, 1].-reg_data[1, 1]))
+		sum_y_s = sum((reg_data[:, 2].-reg_data[1, 2]).*s_mem[1:end])
+
+		M_1 = [sum_x_2 sum_x_s; sum_x_s sum_s_2]
+		Y_1 = [sum_y_x; sum_y_s]
+
+		AB = inv(M_1)*Y_1
+
+		A = AB[1]
+		B = AB[2]
+
+		sum_theta = sum(exp.(B*(reg_data[:, 1])))
+		sum_theta_2 = sum(exp.(2*B*(reg_data[:, 1])))
+		sum_y = sum(reg_data[:, 2])
+		sum_y_theta = sum(reg_data[:, 2].*exp.(B*reg_data[:, 1]))
+
+		M_2 = [length(snr_l) sum_theta; sum_theta sum_theta_2]
+		Y_2 = [sum_y; sum_y_theta]
+
+		ab = inv(M_2)*Y_2
+
+		a = ab[1]
+		b = ab[2]
+		c = B
+
+		println("Regression approximation: ")
+		println("a: ", a)
+		println("b: ", b)
+		println("c: ", c)
+		println("")
+
+		# find elbow point
+	
+		x = [i for i in range(0, stop=maximum(snr_l), length=1000)]
+		y = (b*exp.(c*(x))).+a
+
+		x_n = (x[:].-minimum(x))./(maximum(x)-minimum(x))
+		y_n = (y[:].-minimum(y))./(maximum(y)-minimum(y))
+
+		Dd = [x_n y_n.+x_n]
+
+		elbow_index = Int64
+
+		for i in axes(Dd, 1)
+			if i == 1 || i == size(Dd, 1)
+				continue
+			end
+			if b > 0 && Dd[i, 2] < Dd[i-1, 2] && Dd[i, 2] < Dd[i+1, 2]
+				println("SNR threshold: ", x[i])
+				elbow_index = i
+			elseif b < 0 && Dd[i, 2] > Dd[i-1, 2] && Dd[i, 2] > Dd[i+1, 2]
+				println("SNR threshold: ", x[i])
+				elbow_index = i
+			end
+		end
+
+		snr_threshold = x[elbow_index]
+		println("SNR threshold: ", snr_threshold)
+
+		# select electrodes with SNR > snr_threshold
 		h5open("./data/"*dataset*"_electrodes_raw.hdf5", "r") do file
 			stream = read(file)
 			for n in 0:251
@@ -60,6 +168,11 @@ function select_with_signal_to_noise_ratio(dataset, snr_threshold = 10)
 
 		sg = create_group(g, "meta")
 		sg["snr_threshold"] = snr_threshold
+		sg["a"] = a
+		sg["b"] = b
+		sg["c"] = c
+		sg["snr"] = snr_l
+		sg["cmp"] = cmp_l
 		println("Done.")
 	end
 end
@@ -190,13 +303,13 @@ function compute_complexity_curve(dataset, type, m, r, scales)
 
 		# compute complexity curve
 		if type == "MSE"
-			complexity_curve = multiscale_entropy(resampled_signal, m, r, "sample", scales)
+			complexity_curve = multiscale_entropy(resampled_signal, m, r*std(resampled_signal), "sample", scales)
 		elseif type == "RCMSE"
-			complexity_curve = refined_composite_multiscale_entropy(resampled_signal, m, r, "sample", scales)
+			complexity_curve = refined_composite_multiscale_entropy(resampled_signal, m, r*std(resampled_signal), "sample", scales)
 		elseif type == "FMSE"
-			complexity_curve = multiscale_entropy(resampled_signal, m, r, "fuzzy", scales)
+			complexity_curve = multiscale_entropy(resampled_signal, m, r*std(resampled_signal), "fuzzy", scales)
 		elseif type == "FRCMSE"
-			complexity_curve = refined_composite_multiscale_entropy(resampled_signal, m, r, "fuzzy", scales)
+			complexity_curve = refined_composite_multiscale_entropy(resampled_signal, m, r*std(resampled_signal), "fuzzy", scales)
 		end
 
 		g = create_group(processed_file, type)
