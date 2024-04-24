@@ -8,10 +8,11 @@ using Plots
 
 include("../../lib/complexity.jl")
 
-datasets = ["MR-0311", "MR-0294", "MR-0313", "MR-0293", "MR-0593_nd4", "MR-0599_nd4", "MR-0586_nd4", "MR-0588_nd4"]
+datasets = ["MR-0596_nd4"]
 sampling_rate = 20000
 resampling_rate = 250
 
+#=
 for dataset in datasets
 	if isdir("./electrode_selection/processed_data/"*dataset*"/")
 		continue
@@ -47,7 +48,7 @@ for dataset in datasets
 		close(p_f)
 	end
 end
-
+=#
 for dataset in datasets
 	p_f = h5open("./electrode_selection/processed_data/"*dataset*"/"*dataset*"_processed.h5", "r")
 	data = read(p_f)
@@ -61,6 +62,10 @@ for dataset in datasets
 		snr = [snr; data[electrode]["snr"]]
 		cmp = [cmp; data[electrode]["cmp"]]
 	end
+
+	plot(size=(800, 600), xlims=(0, maximum(snr)+5), ylims=(0, maximum(cmp)+0.1))
+	scatter!(snr, cmp, label="Electrodes", xlabel="SNR", ylabel="CMP", title=dataset*": Electrode selection", legend=:topright, legendfontsize=8, legendtitlefontsize=8, grid=true, framestyle = :box, xticks=0:5:maximum(snr), yticks=0:0.1:maximum(cmp))
+	savefig("./electrode_selection/plots/"*dataset*"_electrode_distribution.png")
 
 	reg_data = [snr cmp]
 	reg_data = reg_data[sortperm(reg_data[:,1]), :] # sorts data by SNR
@@ -118,18 +123,40 @@ for dataset in datasets
 	x_n = (x[:].-minimum(x))./(maximum(x)-minimum(x))
 	y_n = (y[:].-minimum(y))./(maximum(y)-minimum(y))
 
-	Dd = [x_n y_n.+x_n]
+	Dd_p = [x_n y_n.+x_n]
+	Dd_m = [x_n y_n.-x_n]
+
+	plot(size=(800, 600))
+	plot!(Dd_p[:, 1], Dd_p[:, 2])
+	savefig("./electrode_selection/plots/"*dataset*"_data_elbow_p.png")
+
+	plot(size=(800, 600))
+	plot!(Dd_m[:, 1], Dd_m[:, 2])
+	savefig("./electrode_selection/plots/"*dataset*"_data_elbow_m.png")
 
 	elbow_index = Int64
 
-	for i in axes(Dd, 1)
-		if i == 1 || i == size(Dd, 1)
+	for i in axes(Dd_p, 1)
+		if i == 1 || i == size(Dd_p, 1)
 			continue
 		end
-		if b > 0 && Dd[i, 2] < Dd[i-1, 2] && Dd[i, 2] < Dd[i+1, 2]
+		if b > 0 && Dd_p[i, 2] < Dd_p[i-1, 2] && Dd_p[i, 2] < Dd_p[i+1, 2]
 			println("SNR threshold: ", x[i])
 			elbow_index = i
-		elseif b < 0 && Dd[i, 2] > Dd[i-1, 2] && Dd[i, 2] > Dd[i+1, 2]
+		elseif b < 0 && Dd_p[i, 2] > Dd_p[i-1, 2] && Dd_p[i, 2] > Dd_p[i+1, 2]
+			println("SNR threshold: ", x[i])
+			elbow_index = i
+		end
+	end
+
+	for i in axes(Dd_m, 1)
+		if i == 1 || i == size(Dd_m, 1)
+			continue
+		end
+		if b > 0 && Dd_m[i, 2] < Dd_m[i-1, 2] && Dd_m[i, 2] < Dd_m[i+1, 2]
+			println("SNR threshold: ", x[i])
+			elbow_index = i
+		elseif b < 0 && Dd_m[i, 2] > Dd_m[i-1, 2] && Dd_m[i, 2] > Dd_m[i+1, 2]
 			println("SNR threshold: ", x[i])
 			elbow_index = i
 		end

@@ -27,12 +27,18 @@ for group in groups
 	global datasets = [datasets; grouped_datasets[group]]
 end
 
-# parameters
-snr_threshold = 10
-resampling_rate = 250 # Hz
-r = 0.2
+# divide the datasets into N chunks
+N = 4
+i = parse(Int, ARGS[1])
 
-for dataset in datasets
+chunk = datasets[i:N:end]
+
+println(chunk)
+
+# parameters
+resampling_rate = 250 # Hz
+
+for dataset in chunk
 	println("Processing dataset: ", dataset)
 	# if directory does not exist, create it
 	if !isdir("./pipeline/processed_data/"*dataset*"/")
@@ -40,13 +46,19 @@ for dataset in datasets
 	end
 
 	# processing pipeline
-	select_with_signal_to_noise_ratio(dataset)
+	select_with_signal_to_noise_ratio_all_electrodes(dataset)
 	normalize_signals_and_average(dataset)
 	filter_signal(dataset, filter)
 	resample_signal(dataset, resampling_rate)
 
-	compute_complexity_curve(dataset, "MSE", 2, r, [i for i in 1:45])
-	compute_complexity_curve(dataset, "RCMSE", 2, r, [i for i in 1:45])
-	compute_complexity_curve(dataset, "FMSE", 2, r, [i for i in 1:45])
-	compute_complexity_curve(dataset, "FRCMSE", 2, r, [i for i in 1:45])
+	compute_complexity_curve(dataset, "RCMSE", 2, 0.1, [i for i in 1:45])
+	compute_complexity_curve(dataset, "RCMSE", 2, 0.2, [i for i in 1:45])
+	compute_complexity_curve(dataset, "RCMSE", 2, 0.3, [i for i in 1:45])
+	compute_complexity_curve(dataset, "RCMSE", 2, 0.4, [i for i in 1:45])
+	compute_complexity_curve(dataset, "RCMSE", 2, 0.5, [i for i in 1:45])
+
+	# compute by segment
+	# get_variable_frequency_segment
+	# get_variable_amplitude_segment
+	# compute_complexity_curve_segment
 end

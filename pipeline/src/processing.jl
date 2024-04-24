@@ -24,6 +24,29 @@ sampling_rate = 20000
 resampling_rate = 250
 nyquist_frequency = 0.5 * sampling_rate
 
+function select_with_signal_to_noise_ratio_all_electrodes(dataset)
+	# open processed file
+	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
+		# check if clean_electrodes group exists
+		if "clean_electrodes" in keys(read(processed_file))
+			println("Skipping signal to noise ratio selection.")
+			return
+		end
+
+		clean_electrodes = String[]
+
+		for n in 0:251
+			electrode = "electrode_"*string(n)
+			clean_electrodes = [clean_electrodes; electrode]
+		end
+
+		g = create_group(processed_file, "clean_electrodes")
+		g["data"] = clean_electrodes
+
+		println("Done.")
+	end
+end
+
 function select_with_signal_to_noise_ratio(dataset)
 	# open processed file
 	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
@@ -57,8 +80,8 @@ function select_with_signal_to_noise_ratio(dataset)
 				snr = (signal_c/noise_c)
 
 				# calculate fRCMSE
-				fRCMSE = refined_composite_multiscale_entropy(signal, 2, 0.2*std(signal), "fuzzy", [i for i in 20:45])
-				cmp = compute_complexity(fRCMSE)
+				RCMSE = refined_composite_multiscale_entropy(signal, 2, 0.2*std(signal), "sample", [i for i in 20:45])
+				cmp = compute_complexity(RCMSE)
 
 				snr_l = [snr_l; snr]
 				cmp_l = [cmp_l; cmp]
@@ -121,18 +144,32 @@ function select_with_signal_to_noise_ratio(dataset)
 		x_n = (x[:].-minimum(x))./(maximum(x)-minimum(x))
 		y_n = (y[:].-minimum(y))./(maximum(y)-minimum(y))
 
-		Dd = [x_n y_n.+x_n]
+		Dd_p = [x_n y_n.+x_n]
+		Dd_m = [x_n y_n.-x_n]
 
 		elbow_index = Int64
 
-		for i in axes(Dd, 1)
-			if i == 1 || i == size(Dd, 1)
+		for i in axes(Dd_p, 1)
+			if i == 1 || i == size(Dd_p, 1)
 				continue
 			end
-			if b > 0 && Dd[i, 2] < Dd[i-1, 2] && Dd[i, 2] < Dd[i+1, 2]
+			if b > 0 && Dd_p[i, 2] < Dd_p[i-1, 2] && Dd_p[i, 2] < Dd_p[i+1, 2]
 				println("SNR threshold: ", x[i])
 				elbow_index = i
-			elseif b < 0 && Dd[i, 2] > Dd[i-1, 2] && Dd[i, 2] > Dd[i+1, 2]
+			elseif b < 0 && Dd_p[i, 2] > Dd_p[i-1, 2] && Dd_p[i, 2] > Dd_p[i+1, 2]
+				println("SNR threshold: ", x[i])
+				elbow_index = i
+			end
+		end
+	
+		for i in axes(Dd_m, 1)
+			if i == 1 || i == size(Dd_m, 1)
+				continue
+			end
+			if b > 0 && Dd_m[i, 2] < Dd_m[i-1, 2] && Dd_m[i, 2] < Dd_m[i+1, 2]
+				println("SNR threshold: ", x[i])
+				elbow_index = i
+			elseif b < 0 && Dd_m[i, 2] > Dd_m[i-1, 2] && Dd_m[i, 2] > Dd_m[i+1, 2]
 				println("SNR threshold: ", x[i])
 				elbow_index = i
 			end
@@ -166,6 +203,7 @@ function select_with_signal_to_noise_ratio(dataset)
 		g = create_group(processed_file, "clean_electrodes")
 		g["data"] = clean_electrodes
 
+		#=
 		sg = create_group(g, "meta")
 		sg["snr_threshold"] = snr_threshold
 		sg["a"] = a
@@ -173,6 +211,7 @@ function select_with_signal_to_noise_ratio(dataset)
 		sg["c"] = c
 		sg["snr"] = snr_l
 		sg["cmp"] = cmp_l
+		=#
 		println("Done.")
 	end
 end
@@ -199,12 +238,17 @@ function normalize_signals_and_average(dataset)
 			stream = read(file)
 			# create normalized signals group
 			for electrode in clean_electrodes
-				# normalize signal and store it in the processed file
+				# normalize signal using z score
 				signal = stream[electrode]["datos"]
-				max_signal = maximum(signal)
-				min_signal = minimum(signal)
-				normalized_signal = ((signal .- min_signal) ./ (max_signal - min_signal))
-				normalized_signal = (2 .* normalized_signal) .- 1
+				
+				u = mean(signal)
+				s = std(signal)
+				normalized_signal = (signal .- u) ./ s
+
+				#max_signal = maximum(signal)
+				#min_signal = minimum(signal)
+				#normalized_signal = ((signal .- min_signal) ./ (max_signal - min_signal))
+				#normalized_signal = (2 .* normalized_signal) .- 1
 
 				if electrode == clean_electrodes[1]
 					average_signal = normalized_signal
@@ -293,6 +337,10 @@ function compute_complexity_curve(dataset, type, m, r, scales)
 	# open processed file
 	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
 		# check if it has clean electrodes
+		if type in keys(read(processed_file))
+			println("Skipping "*type*" complexity curve computation.")
+			return
+		end
 		if !("clean_electrodes" in keys(read(processed_file)))
 			return
 		end
@@ -312,10 +360,11 @@ function compute_complexity_curve(dataset, type, m, r, scales)
 			complexity_curve = refined_composite_multiscale_entropy(resampled_signal, m, r*std(resampled_signal), "fuzzy", scales)
 		end
 
-		g = create_group(processed_file, type)
+		g = create_group(processed_file, type*"_"*string(r))
 		g["data"] = complexity_curve
 
 		sg = create_group(g, "meta")
+		sg["type"] = type
 		sg["m"] = m
 		sg["r"] = r
 		sg["scales"] = scales
