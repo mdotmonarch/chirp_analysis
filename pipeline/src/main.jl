@@ -3,12 +3,6 @@
 
 include("processing.jl")
 
-filter = Dict(
-	"type" => "BPF",
-	"cutoff_low" => 0.1, # Hz
-	"cutoff_high" => 100 # Hz
-)
-
 groups = ["A", "B", "C", "D", "E", "F", "G", "H"]
 
 grouped_datasets = Dict()
@@ -30,12 +24,14 @@ end
 # divide the datasets into N chunks
 N = 4
 i = parse(Int, ARGS[1])
-
 chunk = datasets[i:N:end]
 
-println(chunk)
-
 # parameters
+filter = Dict(
+	"type" => "BPF",
+	"cutoff_low" => 0.1, # Hz
+	"cutoff_high" => 100 # Hz
+)
 resampling_rate = 250 # Hz
 
 for dataset in chunk
@@ -46,19 +42,46 @@ for dataset in chunk
 	end
 
 	# processing pipeline
-	select_with_signal_to_noise_ratio_all_electrodes(dataset)
+	use_all_electrodes(dataset)
 	normalize_signals_and_average(dataset)
 	filter_signal(dataset, filter)
 	resample_signal(dataset, resampling_rate)
 
-	compute_complexity_curve(dataset, "RCMSE", 2, 0.1, [i for i in 1:45])
-	compute_complexity_curve(dataset, "RCMSE", 2, 0.2, [i for i in 1:45])
-	compute_complexity_curve(dataset, "RCMSE", 2, 0.3, [i for i in 1:45])
-	compute_complexity_curve(dataset, "RCMSE", 2, 0.4, [i for i in 1:45])
-	compute_complexity_curve(dataset, "RCMSE", 2, 0.5, [i for i in 1:45])
+	# compute complexity curve
+	compute_complexity_curve(dataset, "complete", "RCMSE", 2, 0.1, [i for i in 1:45])
+	compute_complexity_curve(dataset, "complete", "RCMSE", 2, 0.2, [i for i in 1:45])
+	compute_complexity_curve(dataset, "complete", "RCMSE", 2, 0.3, [i for i in 1:45])
+	compute_complexity_curve(dataset, "complete", "RCMSE", 2, 0.4, [i for i in 1:45])
+	compute_complexity_curve(dataset, "complete", "RCMSE", 2, 0.5, [i for i in 1:45])
 
-	# compute by segment
-	# get_variable_frequency_segment
-	# get_variable_amplitude_segment
-	# compute_complexity_curve_segment
+	# compute linear regression
+	compute_linear_regression(dataset, "complete", "RCMSE", 0.1)
+	compute_linear_regression(dataset, "complete", "RCMSE", 0.2)
+	compute_linear_regression(dataset, "complete", "RCMSE", 0.3)
+	compute_linear_regression(dataset, "complete", "RCMSE", 0.4)
+	compute_linear_regression(dataset, "complete", "RCMSE", 0.5)
+
+	# get segments
+	get_signal_segments(dataset)
+
+	# compute complexity curve by segment
+	compute_complexity_curve(dataset, "flash", "RCMSE", 2, 0.1, [i for i in 1:45])
+	compute_complexity_curve(dataset, "flash", "RCMSE", 2, 0.2, [i for i in 1:45])
+	compute_complexity_curve(dataset, "flash", "RCMSE", 2, 0.3, [i for i in 1:45])
+	compute_complexity_curve(dataset, "flash", "RCMSE", 2, 0.4, [i for i in 1:45])
+	compute_complexity_curve(dataset, "flash", "RCMSE", 2, 0.5, [i for i in 1:45])
+
+	# compute complexity curve by segment
+	compute_complexity_curve(dataset, "frequency", "RCMSE", 2, 0.1, [i for i in 1:45])
+	compute_complexity_curve(dataset, "frequency", "RCMSE", 2, 0.2, [i for i in 1:45])
+	compute_complexity_curve(dataset, "frequency", "RCMSE", 2, 0.3, [i for i in 1:45])
+	compute_complexity_curve(dataset, "frequency", "RCMSE", 2, 0.4, [i for i in 1:45])
+	compute_complexity_curve(dataset, "frequency", "RCMSE", 2, 0.5, [i for i in 1:45])
+
+	# compute complexity curve by segment
+	compute_complexity_curve(dataset, "amplitude", "RCMSE", 2, 0.1, [i for i in 1:45])
+	compute_complexity_curve(dataset, "amplitude", "RCMSE", 2, 0.2, [i for i in 1:45])
+	compute_complexity_curve(dataset, "amplitude", "RCMSE", 2, 0.3, [i for i in 1:45])
+	compute_complexity_curve(dataset, "amplitude", "RCMSE", 2, 0.4, [i for i in 1:45])
+	compute_complexity_curve(dataset, "amplitude", "RCMSE", 2, 0.5, [i for i in 1:45])
 end

@@ -8,6 +8,19 @@ using DSP
 using JSON
 using Statistics
 using Plots
+using CurveFit
+
+function group_check(file, list, i=0)
+	if i == length(list)
+		return true
+	end
+	path = "/"*join(list[1:i], "/")
+	println("Checking path: ", path)
+	if list[i+1] in keys(file[path])
+		return group_check(file, list, i+1)
+	end
+	return false
+end
 
 function high_pass_filter(signal, nco, order)
 	filter = digitalfilter(Highpass(nco), Butterworth(order))
@@ -24,15 +37,16 @@ sampling_rate = 20000
 resampling_rate = 250
 nyquist_frequency = 0.5 * sampling_rate
 
-function select_with_signal_to_noise_ratio_all_electrodes(dataset)
+function use_all_electrodes(dataset)
 	# open processed file
 	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
 		# check if clean_electrodes group exists
-		if "clean_electrodes" in keys(read(processed_file))
-			println("Skipping signal to noise ratio selection.")
+		if group_check(processed_file, ["clean_electrodes"])
+			println("Skipping clean electrodes assignment...")
 			return
 		end
 
+		println("Using all electrodes...")
 		clean_electrodes = String[]
 
 		for n in 0:251
@@ -40,178 +54,7 @@ function select_with_signal_to_noise_ratio_all_electrodes(dataset)
 			clean_electrodes = [clean_electrodes; electrode]
 		end
 
-		g = create_group(processed_file, "clean_electrodes")
-		g["data"] = clean_electrodes
-
-		println("Done.")
-	end
-end
-
-function select_with_signal_to_noise_ratio(dataset)
-	# open processed file
-	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
-		# check if clean_electrodes group exists
-		if "clean_electrodes" in keys(read(processed_file))
-			println("Skipping signal to noise ratio selection.")
-			return
-		end
-
-		clean_electrodes = String[]
-
-		println("Calculating SNR value... ")
-
-		snr_l = Float64[]
-		cmp_l = Float64[]
-
-		h5open("./data/"*dataset*"_electrodes_raw.hdf5", "r") do file
-			stream = read(file)
-			for n in 0:251
-				println("Processing electrode: ", n)
-				electrode = "electrode_"*string(n)
-				signal = stream[electrode]["datos"]
-				
-				#resample signal
-				step = trunc(Int, sampling_rate / resampling_rate)
-				signal = signal[1:step:end]
-
-				# calculate SNR
-				noise_c = mean(signal[resampling_rate*36:resampling_rate*38].^2)
-				signal_c = mean(signal.^2)
-				snr = (signal_c/noise_c)
-
-				# calculate fRCMSE
-				RCMSE = refined_composite_multiscale_entropy(signal, 2, 0.2*std(signal), "sample", [i for i in 20:45])
-				cmp = compute_complexity(RCMSE)
-
-				snr_l = [snr_l; snr]
-				cmp_l = [cmp_l; cmp]
-			end
-		end
-
-		reg_data = [snr_l cmp_l]
-		reg_data = reg_data[sortperm(reg_data[:,1]), :] # sorts data by SNR
-
-		s_mem = Float64[]
-		for i in axes(reg_data, 1)
-			if i == 1
-				s_mem = [s_mem; 0]
-			else
-				s_mem = [s_mem; s_mem[i-1] + (0.5)*(reg_data[i, 2]+reg_data[i-1, 2])*(reg_data[i, 1]-reg_data[i-1, 1])]
-			end
-		end
-
-		# regression w/ function a + b*exp(c*x)
-
-		sum_x_2 = sum((reg_data[:, 1].-reg_data[1, 1]).^2)
-		sum_x_s = sum((reg_data[:, 1].-reg_data[1, 1]).*s_mem[1:end])
-		sum_s_2 = sum(s_mem[1:end].^2)
-		sum_y_x = sum((reg_data[:, 2].-reg_data[1, 2]).*(reg_data[:, 1].-reg_data[1, 1]))
-		sum_y_s = sum((reg_data[:, 2].-reg_data[1, 2]).*s_mem[1:end])
-
-		M_1 = [sum_x_2 sum_x_s; sum_x_s sum_s_2]
-		Y_1 = [sum_y_x; sum_y_s]
-
-		AB = inv(M_1)*Y_1
-
-		A = AB[1]
-		B = AB[2]
-
-		sum_theta = sum(exp.(B*(reg_data[:, 1])))
-		sum_theta_2 = sum(exp.(2*B*(reg_data[:, 1])))
-		sum_y = sum(reg_data[:, 2])
-		sum_y_theta = sum(reg_data[:, 2].*exp.(B*reg_data[:, 1]))
-
-		M_2 = [length(snr_l) sum_theta; sum_theta sum_theta_2]
-		Y_2 = [sum_y; sum_y_theta]
-
-		ab = inv(M_2)*Y_2
-
-		a = ab[1]
-		b = ab[2]
-		c = B
-
-		println("Regression approximation: ")
-		println("a: ", a)
-		println("b: ", b)
-		println("c: ", c)
-		println("")
-
-		# find elbow point
-	
-		x = [i for i in range(0, stop=maximum(snr_l), length=1000)]
-		y = (b*exp.(c*(x))).+a
-
-		x_n = (x[:].-minimum(x))./(maximum(x)-minimum(x))
-		y_n = (y[:].-minimum(y))./(maximum(y)-minimum(y))
-
-		Dd_p = [x_n y_n.+x_n]
-		Dd_m = [x_n y_n.-x_n]
-
-		elbow_index = Int64
-
-		for i in axes(Dd_p, 1)
-			if i == 1 || i == size(Dd_p, 1)
-				continue
-			end
-			if b > 0 && Dd_p[i, 2] < Dd_p[i-1, 2] && Dd_p[i, 2] < Dd_p[i+1, 2]
-				println("SNR threshold: ", x[i])
-				elbow_index = i
-			elseif b < 0 && Dd_p[i, 2] > Dd_p[i-1, 2] && Dd_p[i, 2] > Dd_p[i+1, 2]
-				println("SNR threshold: ", x[i])
-				elbow_index = i
-			end
-		end
-	
-		for i in axes(Dd_m, 1)
-			if i == 1 || i == size(Dd_m, 1)
-				continue
-			end
-			if b > 0 && Dd_m[i, 2] < Dd_m[i-1, 2] && Dd_m[i, 2] < Dd_m[i+1, 2]
-				println("SNR threshold: ", x[i])
-				elbow_index = i
-			elseif b < 0 && Dd_m[i, 2] > Dd_m[i-1, 2] && Dd_m[i, 2] > Dd_m[i+1, 2]
-				println("SNR threshold: ", x[i])
-				elbow_index = i
-			end
-		end
-
-		snr_threshold = x[elbow_index]
-		println("SNR threshold: ", snr_threshold)
-
-		# select electrodes with SNR > snr_threshold
-		h5open("./data/"*dataset*"_electrodes_raw.hdf5", "r") do file
-			stream = read(file)
-			for n in 0:251
-				electrode = "electrode_"*string(n)
-				signal = stream[electrode]["datos"]
-				noise_c = mean(signal[sampling_rate*36:sampling_rate*38].^2)
-				signal_c = mean(signal.^2)
-		
-				snr = (signal_c/noise_c)
-				if snr > snr_threshold
-					println("SNR of "*electrode*": "*string(snr))
-					clean_electrodes = [clean_electrodes; electrode]
-				end
-			end
-		end
-
-		if length(clean_electrodes) == 0
-			println("No electrodes with signal to noise ratio > "*string(snr_threshold)*".")
-			return
-		end
-
-		g = create_group(processed_file, "clean_electrodes")
-		g["data"] = clean_electrodes
-
-		#=
-		sg = create_group(g, "meta")
-		sg["snr_threshold"] = snr_threshold
-		sg["a"] = a
-		sg["b"] = b
-		sg["c"] = c
-		sg["snr"] = snr_l
-		sg["cmp"] = cmp_l
-		=#
+		processed_file["clean_electrodes/data"] = clean_electrodes
 		println("Done.")
 	end
 end
@@ -220,15 +63,10 @@ function normalize_signals_and_average(dataset)
 	# open processed file
 	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
 		# check if average_signal group exists
-		if "average_signal" in keys(read(processed_file))
-			println("Skipping signal averaging.")
+		if group_check(processed_file, ["average_signal"])
+			println("Skipping signal normalization and averaging.")
 			return
 		end
-		# check if it has clean electrodes
-		if !("clean_electrodes" in keys(read(processed_file)))
-			return
-		end
-
 
 		println("Normalizing selected signals and averaging... ")
 		# read clean electrodes data
@@ -245,11 +83,6 @@ function normalize_signals_and_average(dataset)
 				s = std(signal)
 				normalized_signal = (signal .- u) ./ s
 
-				#max_signal = maximum(signal)
-				#min_signal = minimum(signal)
-				#normalized_signal = ((signal .- min_signal) ./ (max_signal - min_signal))
-				#normalized_signal = (2 .* normalized_signal) .- 1
-
 				if electrode == clean_electrodes[1]
 					average_signal = normalized_signal
 				else
@@ -257,8 +90,8 @@ function normalize_signals_and_average(dataset)
 				end
 			end
 			average_signal = average_signal ./ length(clean_electrodes)
-			g = create_group(processed_file, "average_signal")
-			g["data"] = average_signal
+
+			processed_file["average_signal/data"] = average_signal
 			println("Done.")
 		end
 	end
@@ -268,12 +101,8 @@ function filter_signal(dataset, filter)
 	# open processed file
 	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
 		# check if average_signal group exists
-		if "filtered_signal" in keys(read(processed_file))
+		if group_check(processed_file, ["filtered_signal"])
 			println("Skipping signal filtering.")
-			return
-		end
-		# check if it has clean electrodes
-		if !("clean_electrodes" in keys(read(processed_file)))
 			return
 		end
 
@@ -288,16 +117,13 @@ function filter_signal(dataset, filter)
 			filtered_signal = band_pass_filter(average_signal, filter["cutoff_low"]/nyquist_frequency, filter["cutoff_high"]/nyquist_frequency, 5)
 		end
 
-		g = create_group(processed_file, "filtered_signal")
-		g["data"] = filtered_signal
-		
-		sg = create_group(g, "meta")
-		sg["filter_type"] = filter["type"]
+		processed_file["filtered_signal/data"] = filtered_signal
+		processed_file["filtered_signal/meta/filter_type"] = filter["type"]
 		if filter["type"] == "HPF"
-			sg["cutoff"] = filter["cutoff"]
+			processed_file["filtered_signal/meta/cutoff"] = filter["cutoff"]
 		elseif filter["type"] == "BPF"
-			sg["cutoff_low"] = filter["cutoff_low"]
-			sg["cutoff_high"] = filter["cutoff_high"]
+			processed_file["filtered_signal/meta/cutoff_low"] = filter["cutoff_low"]
+			processed_file["filtered_signal/meta/cutoff_high"] = filter["cutoff_high"]
 		end
 		println("Done.")
 	end
@@ -307,12 +133,8 @@ function resample_signal(dataset, resampling_rate)
 	# open processed file
 	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
 		# check if average_signal group exists
-		if "resampled_signal" in keys(read(processed_file))
-			println("Skipping signal resampling.")
-			return
-		end
-		# check if it has clean electrodes
-		if !("clean_electrodes" in keys(read(processed_file)))
+		if group_check(processed_file, ["signals", "complete"])
+			println("Skipping signal to noise ratio selection.")
 			return
 		end
 
@@ -324,50 +146,93 @@ function resample_signal(dataset, resampling_rate)
 		step = trunc(Int, sampling_rate / resampling_rate)
 		resampled_signal = filtered_signal[1:step:end]
 
-		g = create_group(processed_file, "resampled_signal")
-		g["data"] = resampled_signal
-
-		sg = create_group(g, "meta")
-		sg["resampling_rate"] = resampling_rate
+		processed_file["signals/complete/data"] = resampled_signal
+		processed_file["signals/meta/resampling_rate"] = resampling_rate
 		println("Done.")
 	end
 end
 
-function compute_complexity_curve(dataset, type, m, r, scales)
+function get_signal_segments(dataset)
 	# open processed file
 	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
-		# check if it has clean electrodes
-		if type in keys(read(processed_file))
-			println("Skipping "*type*" complexity curve computation.")
+		# check if segments exist
+		if group_check(processed_file, ["signals", "flash"])
+			println("Skipping flash segment extraction.")
 			return
+		else
+			signal = read(processed_file, "signals/complete/data")
+			processed_file["signals/flash/data"] = signal[1:6*250]
 		end
-		if !("clean_electrodes" in keys(read(processed_file)))
+
+		if group_check(processed_file, ["signals", "frequency"])
+			println("Skipping increasing frequency segment extraction.")
+			return
+		else
+			signal = read(processed_file, "signals/complete/data")
+			processed_file["signals/frequency/data"] = signal[8*250:23*250]
+		end
+
+		if group_check(processed_file, ["signals", "amplitude"])
+			println("Skipping increasing amplitude segment extraction.")
+			return
+		else
+			signal = read(processed_file, "signals/complete/data")
+			processed_file["signals/amplitude/data"] = signal[25*250:33*250]
+		end
+	end
+end
+
+function compute_complexity_curve(dataset, segment, type, m, r, scales)
+	# open processed file
+	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
+		# check if complexity group exists
+		if group_check(processed_file, ["complexity", segment, type, string(r)])
+			println("Skipping signal to noise ratio selection.")
 			return
 		end
 
-		println("Computing "*type*" complexity curve... ")
-		# read resampled_signal
-		resampled_signal = read(processed_file, "resampled_signal/data")
+		println("Computing complexity curve... ")
+
+		# read signal
+		signal = read(processed_file, "signals/"*segment*"/data")
 
 		# compute complexity curve
 		if type == "MSE"
-			complexity_curve = multiscale_entropy(resampled_signal, m, r*std(resampled_signal), "sample", scales)
+			complexity_curve = multiscale_entropy(signal, m, r*std(signal), "sample", scales)
 		elseif type == "RCMSE"
-			complexity_curve = refined_composite_multiscale_entropy(resampled_signal, m, r*std(resampled_signal), "sample", scales)
+			complexity_curve = refined_composite_multiscale_entropy(signal, m, r*std(signal), "sample", scales)
 		elseif type == "FMSE"
-			complexity_curve = multiscale_entropy(resampled_signal, m, r*std(resampled_signal), "fuzzy", scales)
+			complexity_curve = multiscale_entropy(signal, m, r*std(signal), "fuzzy", scales)
 		elseif type == "FRCMSE"
-			complexity_curve = refined_composite_multiscale_entropy(resampled_signal, m, r*std(resampled_signal), "fuzzy", scales)
+			complexity_curve = refined_composite_multiscale_entropy(signal, m, r*std(signal), "fuzzy", scales)
 		end
 
-		g = create_group(processed_file, type*"_"*string(r))
-		g["data"] = complexity_curve
+		processed_file["complexity/"*segment*"/"*type*"/"*string(r)*"/data"] = complexity_curve
+		processed_file["complexity/"*segment*"/"*type*"/"*string(r)*"/meta/m"] = m
+		processed_file["complexity/"*segment*"/"*type*"/"*string(r)*"/meta/r"] = r
+		processed_file["complexity/"*segment*"/"*type*"/"*string(r)*"/meta/scales"] = scales
+	end
+end
 
-		sg = create_group(g, "meta")
-		sg["type"] = type
-		sg["m"] = m
-		sg["r"] = r
-		sg["scales"] = scales
-		println("Done.")
+function compute_linear_regression(dataset, segment, type, r)
+	# open processed file
+	h5open("./pipeline/processed_data/"*dataset*"/"*dataset*"_processed.h5", "cw") do processed_file
+		# check if complexity group exists
+		if group_check(processed_file, ["complexity", segment, type, string(r), "meta", "linear_fit"])
+			println("Skipping linear regression.")
+			return
+		end
+
+		println("Computing linear regression... ")
+
+		# read complexity curve
+		complexity_curve = read(processed_file, "complexity/"*segment*"/"*type*"/"*string(r)*"/data")
+		scales = read(processed_file, "complexity/"*segment*"/"*type*"/"*string(r)*"/meta/scales")
+
+		# compute linear regression
+		a, b = linear_fit(scales, complexity_curve)
+
+		processed_file["complexity/"*segment*"/"*type*"/"*string(r)*"/meta/linear_fit/a"] = a
+		processed_file["complexity/"*segment*"/"*type*"/"*string(r)*"/meta/linear_fit/b"] = b
 	end
 end
